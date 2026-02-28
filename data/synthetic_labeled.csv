@@ -1,0 +1,201 @@
+message,is_anomaly,severity
+User login successful for user_859,False,LOW
+Connection refused to database at 10.0.1.23:5432,True,CRITICAL
+Connection refused to database at 10.0.1.130:5432,True,HIGH
+File uploaded successfully: report_325.pdf,False,MEDIUM
+User login successful for user_877,False,MEDIUM
+Health check passed,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL
+API response sent: 200 OK,False,MEDIUM
+ERROR: Unhandled exception in payment_service,True,HIGH
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+File uploaded successfully: report_384.pdf,False,MEDIUM
+CRITICAL: SSL certificate expired for api.example.com,True,HIGH
+Health check passed,False,LOW
+Kernel panic — not syncing: VFS: Unable to mount root,True,HIGH
+FATAL: Out of memory — killing process 6168,True,HIGH
+CRITICAL: SSL certificate expired for api.example.com,True,CRITICAL
+Segmentation fault in module auth_handler,True,CRITICAL
+File uploaded successfully: report_470.pdf,False,LOW
+Request processed in 4ms,False,LOW
+Segmentation fault in module auth_handler,True,CRITICAL
+API response sent: 200 OK,False,LOW
+Request processed in 35ms,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+FATAL: Out of memory — killing process 5315,True,HIGH
+Request processed in 41ms,False,MEDIUM
+Cache hit for key session_256,False,LOW
+User login successful for user_713,False,MEDIUM
+CRITICAL: SSL certificate expired for api.example.com,True,HIGH
+Request processed in 47ms,False,MEDIUM
+Health check passed,False,MEDIUM
+Health check passed,False,MEDIUM
+Cache hit for key session_830,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+User login successful for user_172,False,LOW
+FATAL: Out of memory — killing process 6413,True,HIGH
+API response sent: 200 OK,False,LOW
+API response sent: 200 OK,False,MEDIUM
+Connection refused to database at 10.0.1.91:5432,True,CRITICAL
+User login successful for user_789,False,LOW
+CRITICAL: SSL certificate expired for api.example.com,True,HIGH
+Health check passed,False,MEDIUM
+Request processed in 36ms,False,LOW
+FATAL: Out of memory — killing process 4872,True,CRITICAL
+File uploaded successfully: report_160.pdf,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL
+ERROR: Unhandled exception in payment_service,True,HIGH
+User login successful for user_151,False,MEDIUM
+Health check passed,False,LOW
+Request processed in 5ms,False,LOW
+Cache hit for key session_692,False,LOW
+File uploaded successfully: report_773.pdf,False,MEDIUM
+Cache hit for key session_785,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,HIGH
+Connection refused to database at 10.0.1.55:5432,True,CRITICAL
+CRITICAL: SSL certificate expired for api.example.com,True,HIGH
+Connection established to database,False,LOW
+Connection established to database,False,LOW
+Request processed in 36ms,False,LOW
+Cache hit for key session_834,False,LOW
+Connection established to database,False,MEDIUM
+User login successful for user_194,False,MEDIUM
+User login successful for user_103,False,LOW
+Connection established to database,False,MEDIUM
+File uploaded successfully: report_674.pdf,False,LOW
+Segmentation fault in module auth_handler,True,HIGH
+User login successful for user_415,False,LOW
+Cache hit for key session_798,False,LOW
+File uploaded successfully: report_735.pdf,False,LOW
+Cache hit for key session_985,False,LOW
+User login successful for user_283,False,MEDIUM
+File uploaded successfully: report_921.pdf,False,LOW
+Request processed in 3ms,False,MEDIUM
+ERROR: Database deadlock detected on table orders,True,HIGH
+Disk usage critical: 98% on /dev/sda1,True,CRITICAL
+File uploaded successfully: report_795.pdf,False,MEDIUM
+Request processed in 17ms,False,LOW
+Connection established to database,False,MEDIUM
+Scheduled task completed: cleanup,False,LOW
+Cache hit for key session_360,False,MEDIUM
+Disk usage critical: 98% on /dev/sda1,True,CRITICAL
+Request processed in 20ms,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+Cache hit for key session_530,False,MEDIUM
+Health check passed,False,MEDIUM
+User login successful for user_411,False,LOW
+Scheduled task completed: cleanup,False,MEDIUM
+API response sent: 200 OK,False,LOW
+Connection established to database,False,MEDIUM
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+File uploaded successfully: report_606.pdf,False,LOW
+FATAL: Out of memory — killing process 2746,True,HIGH
+ERROR: Database deadlock detected on table orders,True,CRITICAL
+ERROR: Database deadlock detected on table orders,True,CRITICAL
+API response sent: 200 OK,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Cache hit for key session_960,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Connection established to database,False,MEDIUM
+Request processed in 10ms,False,LOW
+Health check passed,False,LOW
+Scheduled task completed: cleanup,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL
+Scheduled task completed: cleanup,False,MEDIUM
+File uploaded successfully: report_651.pdf,False,LOW
+Connection established to database,False,LOW
+File uploaded successfully: report_841.pdf,False,MEDIUM
+User login successful for user_503,False,LOW
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL
+Cache hit for key session_565,False,MEDIUM
+File uploaded successfully: report_384.pdf,False,MEDIUM
+Request processed in 2ms,False,LOW
+Scheduled task completed: cleanup,False,LOW
+User login successful for user_872,False,LOW
+FATAL: Out of memory — killing process 3496,True,CRITICAL
+Cache hit for key session_576,False,MEDIUM
+Health check passed,False,LOW
+Health check passed,False,LOW
+File uploaded successfully: report_506.pdf,False,LOW
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+User login successful for user_455,False,MEDIUM
+Request processed in 42ms,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL
+API response sent: 200 OK,False,MEDIUM
+ERROR: Unhandled exception in payment_service,True,CRITICAL
+Connection established to database,False,LOW
+API response sent: 200 OK,False,MEDIUM
+File uploaded successfully: report_444.pdf,False,MEDIUM
+Health check passed,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+Cache hit for key session_187,False,MEDIUM
+Cache hit for key session_807,False,MEDIUM
+User login successful for user_195,False,LOW
+Cache hit for key session_413,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+ERROR: Database deadlock detected on table orders,True,HIGH
+Connection established to database,False,LOW
+Health check passed,False,LOW
+Health check passed,False,MEDIUM
+FATAL: Out of memory — killing process 5658,True,CRITICAL
+User login successful for user_358,False,LOW
+File uploaded successfully: report_603.pdf,False,LOW
+ERROR: Unhandled exception in payment_service,True,CRITICAL
+Cache hit for key session_894,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+User login successful for user_724,False,LOW
+Cache hit for key session_740,False,MEDIUM
+Health check passed,False,LOW
+Kernel panic — not syncing: VFS: Unable to mount root,True,HIGH
+Connection established to database,False,LOW
+Connection established to database,False,LOW
+Cache hit for key session_763,False,MEDIUM
+Request processed in 11ms,False,MEDIUM
+Connection established to database,False,MEDIUM
+File uploaded successfully: report_378.pdf,False,MEDIUM
+User login successful for user_542,False,MEDIUM
+User login successful for user_193,False,LOW
+Connection established to database,False,LOW
+API response sent: 200 OK,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Scheduled task completed: cleanup,False,LOW
+API response sent: 200 OK,False,MEDIUM
+User login successful for user_565,False,MEDIUM
+Request processed in 26ms,False,LOW
+API response sent: 200 OK,False,LOW
+API response sent: 200 OK,False,LOW
+Segmentation fault in module auth_handler,True,CRITICAL
+Disk usage critical: 98% on /dev/sda1,True,HIGH
+Request processed in 8ms,False,MEDIUM
+Health check passed,False,MEDIUM
+Connection established to database,False,MEDIUM
+Segmentation fault in module auth_handler,True,HIGH
+Connection established to database,False,MEDIUM
+Connection established to database,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Scheduled task completed: cleanup,False,MEDIUM
+Scheduled task completed: cleanup,False,LOW
+Cache hit for key session_976,False,MEDIUM
+ERROR: Database deadlock detected on table orders,True,HIGH
+User login successful for user_229,False,MEDIUM
+API response sent: 200 OK,False,MEDIUM
+Segmentation fault in module auth_handler,True,CRITICAL
+File uploaded successfully: report_765.pdf,False,MEDIUM
+File uploaded successfully: report_424.pdf,False,MEDIUM
+User login successful for user_732,False,LOW
+Connection established to database,False,LOW
+Request processed in 41ms,False,LOW
+Connection established to database,False,MEDIUM
+Connection established to database,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,HIGH
+File uploaded successfully: report_734.pdf,False,LOW
+Health check passed,False,MEDIUM
+User login successful for user_923,False,MEDIUM
+Health check passed,False,MEDIUM
+Connection established to database,False,MEDIUM
+Connection established to database,False,MEDIUM
+Kernel panic — not syncing: VFS: Unable to mount root,True,CRITICAL

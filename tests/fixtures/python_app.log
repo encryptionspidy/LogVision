@@ -1,0 +1,12 @@
+2024-01-15 10:30:45,123 - myapp.auth - INFO - User login successful: user=admin ip=192.168.1.100
+2024-01-15 10:30:46,456 - myapp.api - DEBUG - Processing request: GET /api/v1/users
+2024-01-15 10:31:00,789 - myapp.db - WARNING - Slow query detected: 2.5s for SELECT * FROM users
+2024-01-15 10:31:15,012 - myapp.worker - ERROR - Task failed: timeout after 30s, task_id=abc123
+2024-01-15 10:31:16,345 - myapp.worker - ERROR - Task failed: timeout after 30s, task_id=def456
+2024-01-15 10:31:17,678 - myapp.worker - ERROR - Task failed: timeout after 30s, task_id=ghi789
+2024-01-15 10:31:20,901 - myapp.auth - WARNING - Failed login attempt: user=admin ip=10.0.0.5
+2024-01-15 10:31:21,234 - myapp.auth - WARNING - Failed login attempt: user=admin ip=10.0.0.5
+2024-01-15 10:31:22,567 - myapp.auth - WARNING - Failed login attempt: user=admin ip=10.0.0.5
+2024-01-15 10:31:23,890 - myapp.auth - CRITICAL - Brute force detected: user=admin, 5 failures in 10s
+2024-01-15 10:32:00,123 - myapp.api - INFO - Health check passed
+2024-01-15 10:32:30,456 - myapp.cache - ERROR - Redis connection refused: Connection to 10.0.1.50:6379 failed
