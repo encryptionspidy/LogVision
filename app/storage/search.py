@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from sqlalchemy import select, desc, text
 from app.storage.database import logs_table, get_db
+from app.analysis.semantic_tagger import infer_semantic_tags
 
 def search_logs(
     query: Optional[str] = None,
@@ -71,7 +72,8 @@ def search_logs(
                 "line_number": row.line_number,
                 "anomaly_score": row.anomaly_score,
                 "severity": row.severity,
-                "explanation": json.loads(row.explanation) if row.explanation else None
+                "explanation": json.loads(row.explanation) if row.explanation else None,
+                "semantic_tags": infer_semantic_tags(row.message, row.source),
             })
             
     return {

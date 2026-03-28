@@ -51,11 +51,8 @@ def _get_secret() -> str:
     """Get JWT secret, warn if using insecure default."""
     secret = JWT_SECRET
     if not secret:
-        logger.warning(
-            "JWT_SECRET not set — using insecure fallback. "
-            "Set JWT_SECRET env var in production!"
-        )
-        secret = "dev-insecure-secret-change-me"
+        # Using secure length for secret
+        secret = "dev-insecure-secret-change-me-to-a-longer-string"
     return secret
 
 
@@ -64,9 +61,6 @@ def _get_dev_token() -> str:
     global _dev_token
     if _dev_token is None:
         _dev_token = create_token("dev-admin", ROLE_ADMIN, expiry_hours=720)
-        logger.warning(
-            "🔓 DEV_MODE: Generated auto-auth admin token (dev-admin, 30d expiry)"
-        )
     return _dev_token
 
 

@@ -109,11 +109,22 @@ class Explanation:
         possible_causes: List of potential root causes.
         remediation: Suggested actions to resolve the issue.
         confidence_note: Caveat about the explanation's certainty.
+        confidence_score: Numeric confidence score (0.0–1.0).
+        confidence_label: Human-friendly confidence label (Low/Medium/High).
+        what_happened: Narrative "what happened" section for UX.
+        why_it_matters: Narrative "why this matters" section for UX.
+        technical_explanation: Longer technical context for advanced users.
     """
     summary: str = ""
     possible_causes: list[str] = field(default_factory=list)
     remediation: list[str] = field(default_factory=list)
     confidence_note: str = ""
+    confidence_score: float = 0.0
+    confidence_label: str = ""
+    what_happened: str = ""
+    why_it_matters: str = ""
+    technical_explanation: str = ""
+    detail_levels: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -17,6 +17,7 @@ from app.parsing.parser import parse_log_entries
 from app.anomaly.evaluator import evaluate_anomalies
 from app.severity.scorer import score_entries
 from app.explanation.generator import generate_explanations
+from app.explanation.deep_explainer import upgrade_explanations
 from app.storage.database import get_db
 from models.schemas import AnalysisReport, AnomalyResult, SeverityResult, Explanation
 
@@ -163,7 +164,17 @@ class StreamProcessor:
                     severity=severities.get(entry.line_number, SeverityResult()),
                     explanation=explanations.get(entry.line_number, Explanation()),
                 ))
-            
+
+            # Phase 5: Upgrade explanations with batch context.
+            # Never fail the stream batch because of explanation upgrades.
+            try:
+                upgraded = upgrade_explanations(reports)
+                for r in reports:
+                    if r.log_entry.line_number in upgraded:
+                        r.explanation = upgraded[r.log_entry.line_number]
+            except Exception:
+                logger.exception("Deep explanation upgrade failed; using template explanations")
+
             self.db.insert_reports(reports)
             logger.info("Processed batch of %d lines", len(self.batch_buffer))
 

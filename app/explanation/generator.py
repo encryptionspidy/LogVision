@@ -71,13 +71,21 @@ def generate_explanation(
         except KeyError:
             remediation.append(rem_tmpl)
 
+    confidence_score = float(anomaly.confidence or 0.0)
+    if not anomaly.is_anomaly:
+        confidence_score = 0.0
+
+    confidence_label = (
+        "High" if confidence_score >= 0.8 else "Medium" if confidence_score >= 0.5 else "Low"
+    )
+
     # Confidence note (anti-hallucination: always state uncertainty)
-    if anomaly.confidence < 0.5:
+    if confidence_score < 0.5:
         confidence_note = (
             "Low confidence detection. This may be a false positive. "
             "Review in context before taking action."
         )
-    elif anomaly.confidence < 0.8:
+    elif confidence_score < 0.8:
         confidence_note = (
             "Moderate confidence detection. Verify findings against "
             "system behavior and recent changes."
@@ -89,12 +97,48 @@ def generate_explanation(
 
     if not anomaly.is_anomaly:
         confidence_note = "No anomaly detected. Entry appears normal."
+        confidence_label = "Low"
+
+    # UX-friendly narrative sections (kept generic to avoid hallucination)
+    what_happened = summary
+    why_it_matters = (
+        "Higher-severity anomalies often correlate with real service instability "
+        "and should be reviewed alongside recent system changes."
+        if severity.level.value in ("HIGH", "CRITICAL")
+        else "This anomaly may indicate a developing issue; review context to confirm impact."
+    )
+
+    technical_explanation = (
+        f"Anomaly type: {anomaly.anomaly_type}. Details: {anomaly.details or 'No additional details'}. "
+        f"Confidence: {confidence_label} ({confidence_score:.2f})."
+    )
+    if confidence_score < 0.5:
+        technical_explanation = (
+            "Insufficient evidence for a definitive cause. Possible issues include: "
+            + ", ".join(possible_causes[:3])
+            + ". " + technical_explanation
+        )
 
     return Explanation(
         summary=summary,
         possible_causes=possible_causes,
         remediation=remediation,
         confidence_note=confidence_note,
+        confidence_score=confidence_score,
+        confidence_label=confidence_label,
+        what_happened=what_happened,
+        why_it_matters=why_it_matters,
+        technical_explanation=technical_explanation,
+        detail_levels={
+            "simple": what_happened,
+            "technical": technical_explanation,
+            "raw": {
+                "anomaly_type": anomaly.anomaly_type,
+                "confidence": confidence_score,
+                "severity": severity.level.value,
+                "details": anomaly.details,
+            },
+        },
     )
 
 

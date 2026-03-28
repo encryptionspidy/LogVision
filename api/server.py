@@ -25,6 +25,9 @@ Features:
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import time
 import tempfile
@@ -42,12 +45,14 @@ from app.parsing.parser import parse_log_entries
 from app.anomaly.evaluator import evaluate_anomalies
 from app.severity.scorer import score_entries
 from app.explanation.generator import generate_explanations
+from app.explanation.deep_explainer import upgrade_explanations
 from models.schemas import AnalysisReport, AnomalyResult, SeverityResult, Explanation, AlertConfig
 
 # Phase 2 Imports
 from app.storage.database import get_db, init_db
 from app.storage.search import search_logs
 from app.analytics.metrics import AnalyticsEngine
+from app.analytics.insight_engine import InsightEngine
 from app.utils.security import configure_security
 from app.monitoring.watcher import LogMonitor
 from app.security.auth import (
@@ -59,7 +64,12 @@ from app.alerts.engine import DEFAULT_RULES
 # Phase 4 Imports
 from app.root_cause.aggregator import aggregate_root_causes
 from app.root_cause.correlation_engine import detect_cascades
+from app.analysis.root_cause_engine import build_root_causes
+from app.analysis.pattern_analyzer import detect_patterns
+from app.analysis.relationship_mapper import map_relationships
+from app.analysis.incident_builder import build_incidents, build_system_story
 from app.timeline.timeline_builder import build_timeline
+from app.analysis.summary_builder import build_summary_report
 from app.worker.job_queue import get_job_queue
 from app.metrics.system_metrics import get_metrics_collector
 from app.security.validators import LoginRequest, TimelineQueryParams, RootCauseQueryParams
@@ -105,7 +115,7 @@ def create_app(config=None) -> Flask:
         from flask_cors import CORS
         CORS(app, resources={
             r"/*": {
-                "origins": os.getenv("CORS_ORIGINS", "*").split(","),
+                "origins": "*",
                 "methods": ["GET", "POST", "OPTIONS"],
                 "allow_headers": ["Content-Type", "Authorization"],
             }
@@ -144,6 +154,203 @@ def create_app(config=None) -> Flask:
     def serve_ui_assets(filename):
         """Serve UI static assets."""
         return send_from_directory(str(_UI_DIR), filename)
+
+    # =====================
+    # CHAT-DRIVEN ANALYSIS ENDPOINTS (DB-PERSISTED)
+    # =====================
+    
+    @app.route("/analysis/start", methods=["POST"])
+    @app.route("/api/analysis/start", methods=["POST"])
+    def start_analysis():
+        """Start new chat-driven log analysis."""
+        from app.llm.router import get_llm_router
+        import uuid
+        import json as _json
+        
+        log_text = ""
+        instruction = ""
+        question = ""
+        features = []
+
+        if request.is_json:
+            data = request.get_json()
+            log_text = data.get("log_text", "")
+            instruction = data.get("instruction", "")
+            question = data.get("question", "")
+            features = data.get("features", [])
+        else:
+            instruction = request.form.get("instruction", "")
+            question = request.form.get("question", "")
+            if "file" in request.files:
+                file = request.files["file"]
+                log_text = file.read().decode("utf-8", errors="replace")
+            else:
+                log_text = request.form.get("log_text", "")
+        
+        if not log_text:
+            return jsonify({"error": "log_text or file required"}), 400
+        
+        analysis_id = str(uuid.uuid4())
+        
+        # Build structured context pipeline
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".log")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(log_text)
+            
+            reports = _run_pipeline(tmp_path)
+            stats = _generate_summary(reports)
+            
+            anomalies = []
+            for r in reports:
+                if r.anomaly.is_anomaly:
+                    anomalies.append({
+                        "pattern": r.anomaly.anomaly_type,
+                        "severity": r.severity.level.value,
+                        "example_log": r.log_entry.raw[:200]
+                    })
+                    
+            payload_context = {
+                "raw_logs": log_text,
+                "features": features,
+                "stats": stats,
+                "anomalies": anomalies,
+                "severity_distribution": stats.get("severity_distribution", {})
+            }
+        except Exception as e:
+            logger.exception("Pipeline failed, falling back to raw logs: %s", str(e))
+            payload_context = {
+                "raw_logs": log_text,
+                "features": features,
+                "stats": {},
+                "anomalies": [],
+                "severity_distribution": {}
+            }
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        
+        # Use question as instruction if instruction is empty
+        effective_instruction = instruction or question
+        
+        try:
+            llm = get_llm_router()
+            result = llm.generate_analysis(payload_context, effective_instruction)
+            structured_data = result.get("summary", {}) if isinstance(result.get("summary"), dict) else {}
+            
+            # Extract chat markdown for the message
+            chat_md = (
+                structured_data.get("chat_response", "")
+                or structured_data.get("chat_markdown", "")
+                or structured_data.get("summary", "Analysis complete")
+            )
+            
+            risk_level = structured_data.get("risk_level", "UNKNOWN")
+            
+            # Build metadata to persist
+            session_meta = {
+                "status": "complete",
+                "metrics": structured_data.get("metrics", {}),
+                "charts": structured_data.get("charts", {}),
+                "insights": structured_data.get("key_findings", []),
+                "root_causes": structured_data.get("root_causes", []),
+                "anomalies": structured_data.get("anomalies", []),
+                "confidence": structured_data.get("confidence", ""),
+            }
+            
+            # Persist to database
+            db = get_db()
+            db.save_session(
+                session_id=analysis_id,
+                summary=chat_md[:200],  # short summary for sidebar
+                risk_level=risk_level,
+                metadata_json=_json.dumps(session_meta, default=str),
+            )
+            # Persist user's initial question before the assistant response
+            if question:
+                db.save_message(analysis_id, "user", question)
+            db.save_message(analysis_id, "assistant", chat_md)
+            
+            return jsonify({
+                "analysis_id": analysis_id,
+                "status": "started",
+            })
+        except Exception as e:
+            logger.exception("LLM processing failed: %s", str(e))
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route("/api/analysis/history", methods=["GET"])
+    @app.route("/api/analysis/sessions", methods=["GET"])
+    def get_analysis_history():
+        """Get all analysis sessions for sidebar."""
+        db = get_db()
+        limit = request.args.get("limit", 50, type=int)
+        sessions = db.get_sessions(limit=limit)
+        return jsonify(sessions)
+
+    @app.route("/analysis/<analysis_id>", methods=["GET"])
+    @app.route("/api/analysis/<analysis_id>", methods=["GET"])
+    def get_analysis(analysis_id):
+        """Get analysis results with chat history."""
+        db = get_db()
+        session = db.get_session(analysis_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+        
+        messages = db.get_messages(analysis_id)
+        session["messages"] = messages
+        return jsonify(session)
+    
+    @app.route("/analysis/<analysis_id>/chat", methods=["POST"])
+    @app.route("/api/analysis/<analysis_id>/chat", methods=["POST"])
+    def chat_analysis(analysis_id):
+        """Follow-up question on analysis."""
+        from app.llm.router import get_llm_router
+        
+        data = request.get_json()
+        question = data.get("question", "")
+        
+        if not question:
+            return jsonify({"error": "question required"}), 400
+        
+        # Load session context from DB
+        db = get_db()
+        session = db.get_session(analysis_id)
+        context = {}
+        if session:
+            context = {
+                "structured_state": session,
+                "log_snippet": ""
+            }
+        
+        # Load chat history for context
+        messages = db.get_messages(analysis_id)
+        history = [{"role": m["role"], "content": m["content"]} for m in messages[-6:]]
+        
+        try:
+            llm = get_llm_router()
+            answer = llm.answer_question(question, context, history=history)
+            answer_text = answer.get("answer", "") if isinstance(answer, dict) else str(answer)
+            
+            # Persist both messages
+            db.save_message(analysis_id, "user", question)
+            db.save_message(analysis_id, "assistant", answer_text)
+            
+            return jsonify({
+                "question": question,
+                "answer": answer_text
+            })
+        except Exception as e:
+            logger.exception("LLM processing failed: %s", str(e))
+            return jsonify({"error": str(e)}), 500
+
+    # =====================
+    # EXISTING ENDPOINTS
+    # =====================
 
     @app.route("/health", methods=["GET"])
     def health_check():
@@ -338,6 +545,202 @@ def create_app(config=None) -> Flask:
             logger.exception("Root cause analysis failed")
             return jsonify({"error": "Root cause analysis failed", "detail": str(e)}), 500
 
+    # ── Phase 5 Analysis Routes ─────────────────────────────────────────
+    @app.route("/analysis/summary", methods=["GET"])
+    def analysis_summary_endpoint():
+        """Get executive narrative + chart-ready payloads."""
+        hours = request.args.get("hours", 24, type=int)
+        max_anomalies = request.args.get("max_anomalies", 5000, type=int)
+        time_window_seconds = request.args.get("time_window_seconds", 300, type=int)
+        min_group = request.args.get("min_group", 2, type=int)
+
+        try:
+            db = get_db()
+            reports = db.get_recent_reports(hours=hours)
+            severity_distribution: dict[str, int] = {}
+            for r in reports:
+                key = r.severity.level.value
+                severity_distribution[key] = severity_distribution.get(key, 0) + 1
+
+            anomaly_reports = [r for r in reports if r.anomaly.is_anomaly]
+            if max_anomalies and len(anomaly_reports) > max_anomalies:
+                anomaly_reports = sorted(anomaly_reports, key=lambda x: x.anomaly.confidence, reverse=True)[:max_anomalies]
+
+            root_causes = build_root_causes(
+                anomaly_reports,
+                time_window_seconds=time_window_seconds,
+                min_group_size=min_group,
+            )
+            patterns = detect_patterns(anomaly_reports)
+
+            insight_engine = InsightEngine()
+            insight_payload = insight_engine.get_overview_charts(hours=hours)
+            charts = insight_payload.get("charts", {})
+
+            summary = build_summary_report(
+                period_hours=hours,
+                total_entries=len(reports),
+                anomaly_count=len([r for r in reports if r.anomaly.is_anomaly]),
+                severity_distribution=severity_distribution,
+                root_causes=root_causes,
+                patterns=patterns,
+                cluster_distribution=charts.get("cluster_distribution"),
+                charts=charts,
+            )
+
+            relationships = map_relationships(anomaly_reports)
+            incidents = build_incidents(
+                reports=anomaly_reports,
+                root_causes=root_causes,
+                patterns=patterns,
+                relationships=relationships,
+            )
+            summary["incidents"] = [i.to_dict() for i in incidents]
+            summary["system_story"] = build_system_story(
+                incidents=incidents,
+                patterns=patterns,
+                period_hours=hours,
+            )
+
+            return jsonify(summary), 200
+        except Exception as e:
+            logger.exception("Analysis summary failed")
+            return jsonify({"error": "Analysis summary failed", "detail": str(e)}), 500
+
+    @app.route("/analysis/incidents", methods=["GET"])
+    def analysis_incidents_endpoint():
+        """Build incident list from clustered anomalies and relationships."""
+        hours = request.args.get("hours", 24, type=int)
+        max_anomalies = request.args.get("max_anomalies", 5000, type=int)
+        time_window_seconds = request.args.get("time_window_seconds", 300, type=int)
+        min_group = request.args.get("min_group", 2, type=int)
+
+        try:
+            db = get_db()
+            reports = db.get_recent_reports(hours=hours)
+            anomaly_reports = [r for r in reports if r.anomaly.is_anomaly]
+
+            if max_anomalies and len(anomaly_reports) > max_anomalies:
+                anomaly_reports = sorted(anomaly_reports, key=lambda x: x.anomaly.confidence, reverse=True)[:max_anomalies]
+
+            root_causes = build_root_causes(
+                anomaly_reports,
+                time_window_seconds=time_window_seconds,
+                min_group_size=min_group,
+            )
+            patterns = detect_patterns(anomaly_reports)
+            relationships = map_relationships(anomaly_reports)
+            incidents = build_incidents(
+                reports=anomaly_reports,
+                root_causes=root_causes,
+                patterns=patterns,
+                relationships=relationships,
+            )
+
+            return jsonify([i.to_dict() for i in incidents]), 200
+        except Exception as e:
+            logger.exception("Analysis incidents failed")
+            return jsonify({"error": "Analysis incidents failed", "detail": str(e)}), 500
+
+    @app.route("/analysis/story", methods=["GET"])
+    def analysis_story_endpoint():
+        """Return a single narrative system story for the selected period."""
+        hours = request.args.get("hours", 24, type=int)
+        max_anomalies = request.args.get("max_anomalies", 5000, type=int)
+        time_window_seconds = request.args.get("time_window_seconds", 300, type=int)
+        min_group = request.args.get("min_group", 2, type=int)
+
+        try:
+            db = get_db()
+            reports = db.get_recent_reports(hours=hours)
+            anomaly_reports = [r for r in reports if r.anomaly.is_anomaly]
+
+            if max_anomalies and len(anomaly_reports) > max_anomalies:
+                anomaly_reports = sorted(anomaly_reports, key=lambda x: x.anomaly.confidence, reverse=True)[:max_anomalies]
+
+            root_causes = build_root_causes(
+                anomaly_reports,
+                time_window_seconds=time_window_seconds,
+                min_group_size=min_group,
+            )
+            patterns = detect_patterns(anomaly_reports)
+            relationships = map_relationships(anomaly_reports)
+            incidents = build_incidents(
+                reports=anomaly_reports,
+                root_causes=root_causes,
+                patterns=patterns,
+                relationships=relationships,
+            )
+            story = build_system_story(incidents=incidents, patterns=patterns, period_hours=hours)
+
+            return jsonify({"story": story, "incident_count": len(incidents)}), 200
+        except Exception as e:
+            logger.exception("Analysis story failed")
+            return jsonify({"error": "Analysis story failed", "detail": str(e)}), 500
+
+    @app.route("/analysis/root-causes", methods=["GET"])
+    def analysis_root_causes_endpoint():
+        """Get enriched root-cause groups (cluster/time/entity-aware)."""
+        hours = request.args.get("hours", 24, type=int)
+        max_anomalies = request.args.get("max_anomalies", 5000, type=int)
+        time_window_seconds = request.args.get("time_window_seconds", 300, type=int)
+        min_group = request.args.get("min_group", 2, type=int)
+
+        try:
+            db = get_db()
+            reports = db.get_recent_reports(hours=hours)
+            anomaly_reports = [r for r in reports if r.anomaly.is_anomaly]
+
+            if max_anomalies and len(anomaly_reports) > max_anomalies:
+                anomaly_reports = sorted(anomaly_reports, key=lambda x: x.anomaly.confidence, reverse=True)[:max_anomalies]
+
+            root_causes = build_root_causes(
+                anomaly_reports,
+                time_window_seconds=time_window_seconds,
+                min_group_size=min_group,
+            )
+            return jsonify([rc.to_dict() for rc in root_causes]), 200
+        except Exception as e:
+            logger.exception("Analysis root-causes failed")
+            return jsonify({"error": "Analysis root-causes failed", "detail": str(e)}), 500
+
+    @app.route("/analysis/patterns", methods=["GET"])
+    def analysis_patterns_endpoint():
+        """Get behavioral pattern insights derived from anomaly-flagged logs."""
+        hours = request.args.get("hours", 24, type=int)
+        max_anomalies = request.args.get("max_anomalies", 5000, type=int)
+
+        try:
+            db = get_db()
+            reports = db.get_recent_reports(hours=hours)
+            anomaly_reports = [r for r in reports if r.anomaly.is_anomaly]
+
+            if max_anomalies and len(anomaly_reports) > max_anomalies:
+                anomaly_reports = sorted(anomaly_reports, key=lambda x: x.anomaly.confidence, reverse=True)[:max_anomalies]
+
+            patterns = detect_patterns(anomaly_reports)
+            return jsonify([p.to_dict() for p in patterns]), 200
+        except Exception as e:
+            logger.exception("Analysis patterns failed")
+            return jsonify({"error": "Analysis patterns failed", "detail": str(e)}), 500
+
+    @app.route("/analysis/clusters", methods=["GET"])
+    def analysis_clusters_endpoint():
+        """Get similarity clusters distribution (chart-ready)."""
+        hours = request.args.get("hours", 24, type=int)
+
+        try:
+            insight_engine = InsightEngine()
+            insight_payload = insight_engine.get_overview_charts(hours=hours)
+            charts = insight_payload.get("charts", {})
+            return jsonify({
+                "clusters": charts.get("cluster_distribution", []),
+                "metrics": insight_payload.get("metrics", {}),
+            }), 200
+        except Exception as e:
+            logger.exception("Analysis clusters failed")
+            return jsonify({"error": "Analysis clusters failed", "detail": str(e)}), 500
+
     @app.route("/metrics", methods=["GET"])
     def metrics_endpoint():
         """Get system self-observability metrics."""
@@ -465,6 +868,17 @@ def _run_pipeline(file_path: str) -> list[AnalysisReport]:
                 explanation=explanations.get(entry.line_number, Explanation()),
             )
             reports.append(report)
+
+        # Phase 5: Upgrade explanations with batch context (clusters/patterns/root causes).
+        # This keeps the system deterministic (no LLM) while providing richer UX fields.
+        try:
+            upgraded = upgrade_explanations(reports)
+            for r in reports:
+                if r.log_entry.line_number in upgraded:
+                    r.explanation = upgraded[r.log_entry.line_number]
+        except Exception:
+            # Never fail analysis because of explanation upgrades.
+            logger.exception("Deep explanation upgrade failed; falling back to template explanations")
 
         return reports
 

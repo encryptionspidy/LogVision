@@ -21,3 +21,9 @@ flask-cors>=4.0.0
 
 # Phase 4 Dependencies
 pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# LLM Dependencies
+google-genai>=1.0.0
+groq>=0.9.0
+

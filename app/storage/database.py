@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -40,6 +40,26 @@ DEFAULT_DB_PATH = Path("logs.db")
 # ─── Schema Definition ────────────────────────────────────────────────
 
 metadata = MetaData()
+
+analysis_sessions_table = Table(
+    "analysis_sessions",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("timestamp", DateTime, default=datetime.utcnow),
+    Column("summary", Text),
+    Column("risk_level", String),
+    Column("metadata", Text)
+)
+
+chat_messages_table = Table(
+    "chat_messages",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("session_id", String, index=True),
+    Column("role", String),
+    Column("message", Text),
+    Column("timestamp", DateTime, default=datetime.utcnow)
+)
 
 logs_table = Table(
     "logs",
@@ -142,7 +162,7 @@ class Database:
             LogLevel, SeverityLevel,
         )
 
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         try:
             with self.engine.connect() as conn:
@@ -168,6 +188,11 @@ class Database:
                         possible_causes=exp_data.get("possible_causes", []),
                         remediation=exp_data.get("remediation", []),
                         confidence_note=exp_data.get("confidence_note", ""),
+                        confidence_score=exp_data.get("confidence_score", 0.0),
+                        confidence_label=exp_data.get("confidence_label", ""),
+                        what_happened=exp_data.get("what_happened", ""),
+                        why_it_matters=exp_data.get("why_it_matters", ""),
+                        technical_explanation=exp_data.get("technical_explanation", ""),
                     )
                 except (json.JSONDecodeError, TypeError):
                     pass
@@ -209,6 +234,128 @@ class Database:
 
         logger.debug("Retrieved %d reports from last %d hours", len(reports), hours)
         return reports
+
+    # ─── Session / Chat Persistence ───────────────────────────────────
+
+    def save_session(self, session_id: str, summary: str, risk_level: str = "",
+                     metadata_json: str = "{}"):
+        """Insert or update an analysis session."""
+        import json as _json
+        try:
+            with self.engine.begin() as conn:
+                # Try update first
+                result = conn.execute(
+                    analysis_sessions_table.update()
+                    .where(analysis_sessions_table.c.id == session_id)
+                    .values(summary=summary, risk_level=risk_level,
+                            metadata=metadata_json)
+                )
+                if result.rowcount == 0:
+                    conn.execute(
+                        analysis_sessions_table.insert().values(
+                            id=session_id,
+                            timestamp=datetime.utcnow(),
+                            summary=summary,
+                            risk_level=risk_level,
+                            metadata=metadata_json,
+                        )
+                    )
+        except SQLAlchemyError as e:
+            logger.error("Failed to save session %s: %s", session_id, e)
+
+    def get_session(self, session_id: str) -> dict | None:
+        """Get a single analysis session by ID."""
+        import json as _json
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(
+                    analysis_sessions_table.select()
+                    .where(analysis_sessions_table.c.id == session_id)
+                ).fetchone()
+            if not row:
+                return None
+            meta = {}
+            if row.metadata:
+                try:
+                    meta = _json.loads(row.metadata)
+                except (ValueError, TypeError):
+                    pass
+            return {
+                "id": row.id,
+                "created_at": row.timestamp.isoformat() if row.timestamp else None,
+                "summary": row.summary or "",
+                "risk_level": row.risk_level or "",
+                **meta,
+            }
+        except SQLAlchemyError as e:
+            logger.error("Failed to get session %s: %s", session_id, e)
+            return None
+
+    def get_sessions(self, limit: int = 50) -> list[dict]:
+        """Get all analysis sessions ordered by most recent first."""
+        import json as _json
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    analysis_sessions_table.select()
+                    .order_by(analysis_sessions_table.c.timestamp.desc())
+                    .limit(limit)
+                ).fetchall()
+            sessions = []
+            for row in rows:
+                meta = {}
+                if row.metadata:
+                    try:
+                        meta = _json.loads(row.metadata)
+                    except (ValueError, TypeError):
+                        pass
+                sessions.append({
+                    "id": row.id,
+                    "created_at": row.timestamp.isoformat() if row.timestamp else None,
+                    "summary": row.summary or "",
+                    "risk_level": row.risk_level or "",
+                    **meta,
+                })
+            return sessions
+        except SQLAlchemyError as e:
+            logger.error("Failed to get sessions: %s", e)
+            return []
+
+    def save_message(self, session_id: str, role: str, content: str):
+        """Insert a chat message."""
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    chat_messages_table.insert().values(
+                        session_id=session_id,
+                        role=role,
+                        message=content,
+                        timestamp=datetime.utcnow(),
+                    )
+                )
+        except SQLAlchemyError as e:
+            logger.error("Failed to save message for session %s: %s", session_id, e)
+
+    def get_messages(self, session_id: str) -> list[dict]:
+        """Get all chat messages for a session, ordered chronologically."""
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    chat_messages_table.select()
+                    .where(chat_messages_table.c.session_id == session_id)
+                    .order_by(chat_messages_table.c.timestamp.asc())
+                ).fetchall()
+            return [
+                {
+                    "role": row.role,
+                    "content": row.message,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                }
+                for row in rows
+            ]
+        except SQLAlchemyError as e:
+            logger.error("Failed to get messages for session %s: %s", session_id, e)
+            return []
 
     def close(self):
         """Dispose of the engine connection pool."""
