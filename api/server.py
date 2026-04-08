@@ -147,7 +147,10 @@ def create_app(config=None) -> Flask:
 
     @app.route("/", methods=["GET"])
     def serve_ui():
-        """Serve the web UI."""
+        """Serve the enhanced web UI."""
+        enhanced_ui_path = _UI_DIR / "enhanced_index.html"
+        if enhanced_ui_path.exists():
+            return send_from_directory(str(_UI_DIR), "enhanced_index.html")
         return send_from_directory(str(_UI_DIR), "index.html")
 
     @app.route("/ui/<path:filename>", methods=["GET"])
@@ -242,24 +245,58 @@ def create_app(config=None) -> Flask:
             result = llm.generate_analysis(payload_context, effective_instruction)
             structured_data = result.get("summary", {}) if isinstance(result.get("summary"), dict) else {}
             
-            # Extract chat markdown for the message
+            # Extract adaptive narrative markdown
             chat_md = (
-                structured_data.get("chat_response", "")
-                or structured_data.get("chat_markdown", "")
+                structured_data.get("narrative_markdown", "")
+                or structured_data.get("chat_response", "")
                 or structured_data.get("summary", "Analysis complete")
             )
             
-            risk_level = structured_data.get("risk_level", "UNKNOWN")
+            # Extract enhanced metadata for dynamic insights panel
+            risk_level = "UNKNOWN"
+            insights = structured_data.get("insights", [])
+            fixes = structured_data.get("fixes", {})
+            security = structured_data.get("security_analysis", {})
+            evidence = structured_data.get("evidence", [])
+            quality_metrics = structured_data.get("quality_metrics", {})
             
-            # Build metadata to persist
+            # Determine risk level from multiple sources
+            if security.get("threat_level"):
+                risk_level = security["threat_level"]
+            elif insights:
+                high_severity = any(insight.get("severity") == "HIGH" for insight in insights)
+                critical_severity = any(insight.get("severity") == "CRITICAL" for insight in insights)
+                if critical_severity:
+                    risk_level = "CRITICAL"
+                elif high_severity:
+                    risk_level = "HIGH"
+                else:
+                    risk_level = "MEDIUM"
+            
+            # Build enhanced metadata for frontend with infographic data
             session_meta = {
                 "status": "complete",
                 "metrics": structured_data.get("metrics", {}),
-                "charts": structured_data.get("charts", {}),
-                "insights": structured_data.get("key_findings", []),
+                "insights": insights,
                 "root_causes": structured_data.get("root_causes", []),
-                "anomalies": structured_data.get("anomalies", []),
+                "evidence": evidence,
+                "fixes": fixes,
+                "security_analysis": security,
+                "patterns": structured_data.get("patterns", []),
                 "confidence": structured_data.get("confidence", ""),
+                "quality_metrics": quality_metrics,
+                "actionable_commands": len(fixes.get("commands", [])),
+                "evidence_count": len(evidence),
+                "insight_count": len(insights),
+                "has_security_issues": bool(security.get("indicators")),
+                "user_intent": payload_context.get("user_intent", "general"),
+                # Add chart-ready data
+                "charts": {
+                    "severity_distribution": structured_data.get("metrics", {}).get("severity_distribution", []),
+                    "timeline": structured_data.get("metrics", {}).get("timeline_data", []),
+                    "top_patterns": structured_data.get("metrics", {}).get("pattern_counts", []),
+                    "affected_components": structured_data.get("metrics", {}).get("affected_components", []),
+                }
             }
             
             # Persist to database
@@ -278,6 +315,9 @@ def create_app(config=None) -> Flask:
             return jsonify({
                 "analysis_id": analysis_id,
                 "status": "started",
+                "risk_level": risk_level,
+                "actionable_items": len(fixes.get("commands", [])),
+                "evidence_count": len(evidence)
             })
         except Exception as e:
             logger.exception("LLM processing failed: %s", str(e))
@@ -295,15 +335,42 @@ def create_app(config=None) -> Flask:
     @app.route("/analysis/<analysis_id>", methods=["GET"])
     @app.route("/api/analysis/<analysis_id>", methods=["GET"])
     def get_analysis(analysis_id):
-        """Get analysis results with chat history."""
+        """Get analysis results with chat history and infographic data."""
         db = get_db()
         session = db.get_session(analysis_id)
         if not session:
             return jsonify({"error": "Session not found"}), 404
         
         messages = db.get_messages(analysis_id)
-        session["messages"] = messages
-        return jsonify(session)
+        
+        # Extract metadata for infographic data
+        # Note: metadata is already spread into session dict by get_session()
+        
+        # Build response with infographic data
+        response = {
+            "id": session["id"],
+            "summary": session["summary"],
+            "risk_level": session["risk_level"],
+            "created_at": session.get("created_at"),
+            "messages": messages,
+            # Infographic data from session (metadata is spread)
+            "metrics": session.get("metrics", {}),
+            "charts": {
+                "severity_distribution": session.get("metrics", {}).get("severity_distribution", []),
+                "timeline": session.get("metrics", {}).get("timeline_data", []),
+                "top_patterns": session.get("metrics", {}).get("pattern_counts", []),
+                "affected_components": session.get("metrics", {}).get("affected_components", []),
+            },
+            "insights": session.get("insights", []),
+            "anomalies": session.get("patterns", []),
+            "confidence": session.get("confidence", 0),
+        }
+        
+        # Add anomaly_score if available
+        if session.get("metrics", {}).get("anomaly_score"):
+            response["metrics"]["anomaly_score"] = session["metrics"]["anomaly_score"]
+        
+        return jsonify(response)
     
     @app.route("/analysis/<analysis_id>/chat", methods=["POST"])
     @app.route("/api/analysis/<analysis_id>/chat", methods=["POST"])
@@ -351,6 +418,64 @@ def create_app(config=None) -> Flask:
     # =====================
     # EXISTING ENDPOINTS
     # =====================
+
+    @app.route("/api/analysis/<session_id>", methods=["GET"])
+    def get_analysis_session(session_id):
+        """Get a specific analysis session with all details."""
+        try:
+            db = get_db()
+            session = db.get_session(session_id)
+            
+            if not session:
+                return jsonify({"error": "Session not found"}), 404
+            
+            # Get messages for this session
+            messages = db.get_messages(session_id)
+            
+            return jsonify({
+                "id": session["id"],
+                "summary": session["summary"],
+                "risk_level": session["risk_level"],
+                "created_at": session["created_at"],
+                "metadata": json.loads(session["metadata_json"]) if session.get("metadata_json") else {},
+                "messages": messages
+            })
+        except Exception as e:
+            logger.exception("Failed to get session: %s", str(e))
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/analysis/<session_id>", methods=["PATCH"])
+    def update_analysis_session(session_id):
+        """Update a session (e.g., rename)."""
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            db = get_db()
+            
+            # Update session summary if provided
+            if "summary" in data:
+                db.update_session_summary(session_id, data["summary"])
+            
+            return jsonify({"status": "updated"})
+        except Exception as e:
+            logger.exception("Failed to update session: %s", str(e))
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/analysis/<session_id>", methods=["DELETE"])
+    def delete_analysis_session(session_id):
+        """Delete a session and all its messages."""
+        try:
+            db = get_db()
+            
+            # Delete session (cascade deletes messages)
+            db.delete_session(session_id)
+            
+            return jsonify({"status": "deleted"})
+        except Exception as e:
+            logger.exception("Failed to delete session: %s", str(e))
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/health", methods=["GET"])
     def health_check():

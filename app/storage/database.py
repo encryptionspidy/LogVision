@@ -301,6 +301,7 @@ class Database:
                     .order_by(analysis_sessions_table.c.timestamp.desc())
                     .limit(limit)
                 ).fetchall()
+            
             sessions = []
             for row in rows:
                 meta = {}
@@ -320,6 +321,39 @@ class Database:
         except SQLAlchemyError as e:
             logger.error("Failed to get sessions: %s", e)
             return []
+
+    def update_session_summary(self, session_id: str, new_summary: str):
+        """Update just the summary of a session."""
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    analysis_sessions_table.update()
+                    .where(analysis_sessions_table.c.id == session_id)
+                    .values(summary=new_summary)
+                )
+                return result.rowcount > 0
+        except SQLAlchemyError as e:
+            logger.error("Failed to update session summary %s: %s", session_id, e)
+            return False
+
+    def delete_session(self, session_id: str):
+        """Delete a session and all its messages."""
+        try:
+            with self.engine.begin() as conn:
+                # Delete messages first (foreign key)
+                conn.execute(
+                    chat_messages_table.delete()
+                    .where(chat_messages_table.c.session_id == session_id)
+                )
+                # Delete session
+                result = conn.execute(
+                    analysis_sessions_table.delete()
+                    .where(analysis_sessions_table.c.id == session_id)
+                )
+                return result.rowcount > 0
+        except SQLAlchemyError as e:
+            logger.error("Failed to delete session %s: %s", session_id, e)
+            return False
 
     def save_message(self, session_id: str, role: str, content: str):
         """Insert a chat message."""
