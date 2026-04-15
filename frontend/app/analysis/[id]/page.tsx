@@ -2,11 +2,15 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Loader2, PanelLeftClose, PanelLeftOpen, Shield } from "lucide-react";
 import HistorySidebar from "@/components/sidebar/HistorySidebar";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatInput from "@/components/chat/ChatInput";
 import InsightsPanel from "@/components/insights/EnhancedInsightsPanel";
+import InsightBanner from "@/components/chat/InsightBanner";
+import CausalChainCard from "@/components/chat/CausalChainCard";
+import EvidenceBlock from "@/components/chat/EvidenceBlock";
+import ActionItems from "@/components/chat/ActionItems";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -14,6 +18,13 @@ interface Message {
   role: "user" | "assistant";
   content: string;
 }
+
+const RISK_COLORS: Record<string, string> = {
+  CRITICAL: "text-red-400",
+  HIGH: "text-orange-400",
+  MEDIUM: "text-yellow-400",
+  LOW: "text-green-400",
+};
 
 export default function AnalysisChatPage() {
   const params = useParams();
@@ -25,6 +36,13 @@ export default function AnalysisChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [insightsData, setInsightsData] = useState<any>(null);
+  // SRE intelligence state
+  const [keyInsight, setKeyInsight] = useState("");
+  const [riskLevel, setRiskLevel] = useState("");
+  const [confidence, setConfidence] = useState(0);
+  const [causalChain, setCausalChain] = useState<any[]>([]);
+  const [recommendedActions, setRecommendedActions] = useState<any[]>([]);
+  const [evidence, setEvidence] = useState<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,7 +62,26 @@ export default function AnalysisChatPage() {
       if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
       const data = await res.json();
 
-      // Set insights data from session metadata
+      // Set SRE intelligence data
+      setKeyInsight(data.key_insight || "");
+      setRiskLevel(data.risk_level || "");
+      setConfidence(
+        data.root_cause_hypothesis?.confidence ||
+        (typeof data.confidence === "number" ? data.confidence : parseInt(data.confidence) || 0)
+      );
+      setCausalChain(data.causal_chain || []);
+      setRecommendedActions(data.recommended_actions || []);
+
+      // Extract evidence from insights
+      const allEvidence: any[] = [];
+      (data.insights || []).forEach((insight: any) => {
+        (insight.evidence || []).forEach((ev: string) => {
+          allEvidence.push({ log_line: ev, significance: insight.title });
+        });
+      });
+      setEvidence(allEvidence.slice(0, 8));
+
+      // Set insights panel data
       setInsightsData({
         metrics: data.metrics,
         charts: data.charts,
@@ -52,6 +89,14 @@ export default function AnalysisChatPage() {
         anomalies: data.anomalies,
         risk_level: data.risk_level,
         confidence: data.confidence,
+        // SRE fields for insights panel
+        key_insight: data.key_insight,
+        core_problem: data.core_problem,
+        causal_chain: data.causal_chain,
+        impact_assessment: data.impact_assessment,
+        root_cause_hypothesis: data.root_cause_hypothesis,
+        recommended_actions: data.recommended_actions,
+        confidence_explanation: data.confidence_explanation,
       });
 
       // Load messages from DB
@@ -105,6 +150,9 @@ export default function AnalysisChatPage() {
     }
   };
 
+  // Determine if this is the first assistant message (for showing structured cards)
+  const firstAssistantIndex = messages.findIndex((m) => m.role === "assistant");
+
   return (
     <div className="flex h-screen bg-[#0b0b0c]">
       {/* Sidebar */}
@@ -127,13 +175,27 @@ export default function AnalysisChatPage() {
               <PanelLeftClose className="h-4 w-4" />
             )}
           </button>
-          <div>
-            <h1 className="text-sm font-semibold text-text-primary">
-              Log Analysis
-            </h1>
-            <p className="text-[11px] text-gray-600">
-              Session {analysisId.slice(0, 8)}
-            </p>
+          <div className="flex items-center gap-3 flex-1">
+            <div>
+              <h1 className="text-sm font-semibold text-text-primary">
+                Log Analysis
+              </h1>
+              <p className="text-[11px] text-gray-600">
+                Session {analysisId.slice(0, 8)}
+              </p>
+            </div>
+            {/* Risk level badge in header */}
+            {riskLevel && riskLevel !== "UNKNOWN" && (
+              <div className={`ml-auto flex items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold ${RISK_COLORS[riskLevel] || "text-gray-400"}`}>
+                <Shield className="h-3 w-3" />
+                {riskLevel}
+                {confidence > 0 && (
+                  <span className="text-gray-500 font-normal ml-1">
+                    {confidence}%
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -148,16 +210,49 @@ export default function AnalysisChatPage() {
 
             {initialLoading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="h-6 w-6 animate-spin text-accent-primary" />
+                <div className="text-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-accent-primary mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">Loading analysis...</p>
+                </div>
               </div>
             ) : (
               <>
                 {messages.map((msg, idx) => (
-                  <ChatMessage
-                    key={idx}
-                    role={msg.role}
-                    content={msg.content}
-                  />
+                  <div key={idx}>
+                    <ChatMessage
+                      role={msg.role}
+                      content={msg.content}
+                    />
+
+                    {/* Render structured intelligence cards after first assistant message */}
+                    {msg.role === "assistant" && idx === firstAssistantIndex && (
+                      <div className="mt-4 space-y-4 animate-fadeIn">
+                        {/* Key Insight Banner */}
+                        {keyInsight && (
+                          <InsightBanner
+                            keyInsight={keyInsight}
+                            riskLevel={riskLevel}
+                            confidence={confidence}
+                          />
+                        )}
+
+                        {/* Causal Chain */}
+                        {causalChain.length > 0 && (
+                          <CausalChainCard chain={causalChain} />
+                        )}
+
+                        {/* Evidence */}
+                        {evidence.length > 0 && (
+                          <EvidenceBlock evidence={evidence} />
+                        )}
+
+                        {/* Action Items */}
+                        {recommendedActions.length > 0 && (
+                          <ActionItems actions={recommendedActions} />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
 
                 {loading && (
@@ -166,7 +261,14 @@ export default function AnalysisChatPage() {
                       <Loader2 className="h-4 w-4 animate-spin text-[#111]" />
                     </div>
                     <div className="rounded-2xl bg-[#1a1a1e] border border-white/5 px-5 py-3">
-                      <span className="text-sm text-gray-400">Thinking...</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-400">Analyzing</span>
+                        <span className="flex gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="h-1.5 w-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="h-1.5 w-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -181,9 +283,10 @@ export default function AnalysisChatPage() {
           onSend={handleSend}
           loading={loading}
           suggestions={[
-            "What caused most errors?",
+            "What caused the root failure?",
+            "How do I fix this?",
             "Show critical issues",
-            "Explain security concerns",
+            "What's the blast radius?",
           ]}
         />
       </div>
@@ -192,7 +295,7 @@ export default function AnalysisChatPage() {
       <div className="hidden w-[340px] border-l border-white/5 bg-[#0a0a0b] lg:block">
         <div className="border-b border-white/5 px-4 py-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Analysis Insights
+            System Intelligence
           </h2>
         </div>
         <InsightsPanel data={insightsData} />

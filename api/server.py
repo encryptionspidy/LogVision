@@ -252,6 +252,15 @@ def create_app(config=None) -> Flask:
                 or structured_data.get("summary", "Analysis complete")
             )
             
+            # Extract SRE-grade intelligence fields
+            key_insight = structured_data.get("key_insight", "")
+            core_problem = structured_data.get("core_problem", {})
+            causal_chain = structured_data.get("causal_chain", [])
+            impact_assessment = structured_data.get("impact_assessment", {})
+            root_cause_hypothesis = structured_data.get("root_cause_hypothesis", {})
+            recommended_actions = structured_data.get("recommended_actions", [])
+            confidence_explanation = structured_data.get("confidence_explanation", "")
+            
             # Extract enhanced metadata for dynamic insights panel
             risk_level = "UNKNOWN"
             insights = structured_data.get("insights", [])
@@ -261,7 +270,9 @@ def create_app(config=None) -> Flask:
             quality_metrics = structured_data.get("quality_metrics", {})
             
             # Determine risk level from multiple sources
-            if security.get("threat_level"):
+            if core_problem.get("severity"):
+                risk_level = core_problem["severity"]
+            elif security.get("threat_level"):
                 risk_level = security["threat_level"]
             elif insights:
                 high_severity = any(insight.get("severity") == "HIGH" for insight in insights)
@@ -273,9 +284,18 @@ def create_app(config=None) -> Flask:
                 else:
                     risk_level = "MEDIUM"
             
-            # Build enhanced metadata for frontend with infographic data
+            # Build enhanced metadata for frontend with SRE intelligence
             session_meta = {
                 "status": "complete",
+                # SRE intelligence fields
+                "key_insight": key_insight,
+                "core_problem": core_problem,
+                "causal_chain": causal_chain,
+                "impact_assessment": impact_assessment,
+                "root_cause_hypothesis": root_cause_hypothesis,
+                "recommended_actions": recommended_actions,
+                "confidence_explanation": confidence_explanation,
+                # Existing fields
                 "metrics": structured_data.get("metrics", {}),
                 "insights": insights,
                 "root_causes": structured_data.get("root_causes", []),
@@ -303,7 +323,7 @@ def create_app(config=None) -> Flask:
             db = get_db()
             db.save_session(
                 session_id=analysis_id,
-                summary=chat_md[:200],  # short summary for sidebar
+                summary=key_insight or chat_md[:200],  # Use key_insight for sidebar if available
                 risk_level=risk_level,
                 metadata_json=_json.dumps(session_meta, default=str),
             )
@@ -316,8 +336,10 @@ def create_app(config=None) -> Flask:
                 "analysis_id": analysis_id,
                 "status": "started",
                 "risk_level": risk_level,
-                "actionable_items": len(fixes.get("commands", [])),
-                "evidence_count": len(evidence)
+                "key_insight": key_insight,
+                "actionable_items": len(recommended_actions) or len(fixes.get("commands", [])),
+                "evidence_count": len(evidence),
+                "confidence": root_cause_hypothesis.get("confidence", 50)
             })
         except Exception as e:
             logger.exception("LLM processing failed: %s", str(e))
@@ -346,14 +368,22 @@ def create_app(config=None) -> Flask:
         # Extract metadata for infographic data
         # Note: metadata is already spread into session dict by get_session()
         
-        # Build response with infographic data
+        # Build response with SRE intelligence data
         response = {
             "id": session["id"],
             "summary": session["summary"],
             "risk_level": session["risk_level"],
             "created_at": session.get("created_at"),
             "messages": messages,
-            # Infographic data from session (metadata is spread)
+            # SRE intelligence fields
+            "key_insight": session.get("key_insight", ""),
+            "core_problem": session.get("core_problem", {}),
+            "causal_chain": session.get("causal_chain", []),
+            "impact_assessment": session.get("impact_assessment", {}),
+            "root_cause_hypothesis": session.get("root_cause_hypothesis", {}),
+            "recommended_actions": session.get("recommended_actions", []),
+            "confidence_explanation": session.get("confidence_explanation", ""),
+            # Visualization data
             "metrics": session.get("metrics", {}),
             "charts": {
                 "severity_distribution": session.get("metrics", {}).get("severity_distribution", []),
@@ -390,7 +420,16 @@ def create_app(config=None) -> Flask:
         context = {}
         if session:
             context = {
-                "structured_state": session,
+                "structured_state": {
+                    "key_insight": session.get("key_insight", ""),
+                    "core_problem": session.get("core_problem", {}),
+                    "causal_chain": session.get("causal_chain", []),
+                    "impact_assessment": session.get("impact_assessment", {}),
+                    "root_cause_hypothesis": session.get("root_cause_hypothesis", {}),
+                    "recommended_actions": session.get("recommended_actions", []),
+                    "insights": session.get("insights", []),
+                    "metrics": session.get("metrics", {}),
+                },
                 "log_snippet": ""
             }
         

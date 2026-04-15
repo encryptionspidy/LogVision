@@ -19,10 +19,10 @@ const SAMPLE_LOG = `2024-03-27 10:15:32 WARN [ConnectionPool] Connection timeout
 2024-03-27 10:15:42 INFO [System] Database service restarted successfully`;
 
 const QUICK_PROMPTS = [
-  { label: "Find anomalies", icon: Search },
-  { label: "Explain errors", icon: AlertTriangle },
-  { label: "Detect security risks", icon: Shield },
-  { label: "Generate analytics", icon: BarChart3 },
+  { label: "Find anomalies", icon: Search, description: "Detect unusual patterns" },
+  { label: "Root cause analysis", icon: AlertTriangle, description: "Trace failure chains" },
+  { label: "Security assessment", icon: Shield, description: "Identify threats" },
+  { label: "System health report", icon: BarChart3, description: "Full diagnostic" },
 ];
 
 export default function HomePage() {
@@ -92,17 +92,17 @@ export default function HomePage() {
         <div className="w-full max-w-2xl">
           {/* Hero */}
           <div className="mb-10 text-center">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ff8a5b] to-[#ffb38a] shadow-lg shadow-[rgba(255,138,91,0.35)]/40">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ff8a5b] to-[#ffb38a] shadow-lg shadow-[rgba(255,138,91,0.35)]/40 animate-pulseGlow">
               <Sparkles className="h-8 w-8 text-[#111]" />
             </div>
             <h1 className="mb-2 text-4xl font-bold text-[#f5f5f5] sm:text-5xl">
               LogVision
             </h1>
             <p className="mb-1 text-lg text-gray-400">
-              AI-powered log analysis assistant
+              AI-powered log intelligence assistant
             </p>
             <p className="text-sm text-gray-600">
-              Detect anomalies, identify root causes, and generate actionable insights
+              Detect anomalies • Trace root causes • Get actionable fixes
             </p>
           </div>
 
@@ -189,16 +189,17 @@ export default function HomePage() {
 
           {/* Quick Prompts */}
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {QUICK_PROMPTS.map(({ label, icon: Icon }) => (
+            {QUICK_PROMPTS.map(({ label, icon: Icon, description }) => (
               <button
                 key={label}
                 onClick={() => {
                   if (logInput.trim()) handleSubmit(label);
                 }}
                 disabled={!logInput.trim() || loading}
-                className="flex items-center gap-1.5 rounded-full border border-white/8 px-4 py-2 text-xs text-gray-500 transition-colors hover:border-white/15 hover:text-gray-300 disabled:opacity-30"
+                className="group flex items-center gap-2 rounded-full border border-white/8 px-4 py-2 text-xs text-gray-500 transition-all hover:border-[#ff8a5b]/20 hover:text-gray-300 hover:bg-white/[0.02] disabled:opacity-30"
+                title={description}
               >
-                <Icon className="h-3.5 w-3.5" />
+                <Icon className="h-3.5 w-3.5 transition-colors group-hover:text-[#ff8a5b]" />
                 {label}
               </button>
             ))}
