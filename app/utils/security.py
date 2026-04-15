@@ -2,16 +2,30 @@
 Security configuration (Rate Limits, etc).
 """
 
+import os
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# Initialize Limiter
+# Check if we're in development mode
+env = os.environ.get("ENV", "development").lower()
+is_dev = env == "development"
+
+# Initialize Limiter with different limits for dev vs production
 # In production, use Redis storage uri
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
+if is_dev:
+    # Much higher limits for development to avoid rate limiting issues
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["10000 per day", "1000 per hour"],
+        storage_uri="memory://"
+    )
+else:
+    # Production limits
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
+    )
 
 def configure_security(app):
     """Apply security middleware to Flask app."""

@@ -30,6 +30,7 @@ export default function HomePage() {
   const [logInput, setLogInput] = useState("");
   const [queryText, setQueryText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -41,10 +42,28 @@ export default function HomePage() {
 
     setError(null);
     setLoading(true);
+    setLoadingStage("Parsing logs...");
 
     const question = quickPrompt || queryText.trim();
 
     try {
+      // Simulate loading stages for UX (will be replaced with real SSE later)
+      const stages = [
+        "Parsing logs...",
+        "Detecting patterns...",
+        "Analyzing anomalies...",
+        "Generating insights...",
+        "Preparing summary..."
+      ];
+
+      let stageIndex = 0;
+      const stageInterval = setInterval(() => {
+        if (stageIndex < stages.length) {
+          setLoadingStage(stages[stageIndex]);
+          stageIndex++;
+        }
+      }, 800);
+
       const features = ["anomaly", "root-cause"];
       const res = await fetch(`${API_BASE}/api/analysis/start`, {
         method: "POST",
@@ -56,6 +75,10 @@ export default function HomePage() {
           features,
         }),
       });
+
+      clearInterval(stageInterval);
+      setLoadingStage("Finalizing...");
+
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       if (data.analysis_id) {
@@ -67,6 +90,7 @@ export default function HomePage() {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setLoading(false);
+      setLoadingStage("");
     }
   };
 
@@ -175,7 +199,7 @@ export default function HomePage() {
                 {loading ? (
                   <>
                     <Zap className="h-4 w-4 animate-pulse" />
-                    Analyzing...
+                    {loadingStage || "Analyzing..."}
                   </>
                 ) : (
                   <>

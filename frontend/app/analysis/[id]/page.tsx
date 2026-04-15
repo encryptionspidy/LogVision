@@ -32,6 +32,7 @@ export default function AnalysisChatPage() {
   const analysisId = params.id as string;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -120,6 +121,7 @@ export default function AnalysisChatPage() {
   const handleSend = async (text: string) => {
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setLoading(true);
+    setLoadingStage("Processing question...");
     setError(null);
 
     try {
@@ -131,6 +133,8 @@ export default function AnalysisChatPage() {
           body: JSON.stringify({ question: text }),
         }
       );
+      setLoadingStage("Generating response...");
+      
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       setMessages((prev) => [
@@ -147,6 +151,7 @@ export default function AnalysisChatPage() {
       ]);
     } finally {
       setLoading(false);
+      setLoadingStage("");
     }
   };
 
@@ -212,7 +217,7 @@ export default function AnalysisChatPage() {
               <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                   <Loader2 className="h-6 w-6 animate-spin text-accent-primary mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">Loading analysis...</p>
+                  <p className="text-sm text-gray-500">{loadingStage || "Loading analysis..."}</p>
                 </div>
               </div>
             ) : (
@@ -262,7 +267,7 @@ export default function AnalysisChatPage() {
                     </div>
                     <div className="rounded-2xl bg-[#1a1a1e] border border-white/5 px-5 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-400">Analyzing</span>
+                        <span className="text-sm text-gray-400">{loadingStage || "Analyzing"}</span>
                         <span className="flex gap-1">
                           <span className="h-1.5 w-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "0ms" }} />
                           <span className="h-1.5 w-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "150ms" }} />

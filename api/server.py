@@ -167,6 +167,7 @@ def create_app(config=None) -> Flask:
     def start_analysis():
         """Start new chat-driven log analysis."""
         from app.llm.router import get_llm_router
+        from app.storage.temp_log_store import get_temp_log_store
         import uuid
         import json as _json
         
@@ -174,6 +175,7 @@ def create_app(config=None) -> Flask:
         instruction = ""
         question = ""
         features = []
+        log_size_bytes = 0
 
         if request.is_json:
             data = request.get_json()
@@ -181,19 +183,50 @@ def create_app(config=None) -> Flask:
             instruction = data.get("instruction", "")
             question = data.get("question", "")
             features = data.get("features", [])
+            log_size_bytes = len(log_text.encode('utf-8')) if log_text else 0
         else:
             instruction = request.form.get("instruction", "")
             question = request.form.get("question", "")
             if "file" in request.files:
                 file = request.files["file"]
-                log_text = file.read().decode("utf-8", errors="replace")
+                # Check file size before reading
+                file.seek(0, os.SEEK_END)
+                log_size_bytes = file.tell()
+                file.seek(0)
+                
+                # Validate against config limit
+                if log_size_bytes > cfg.ingestion.max_file_size_bytes:
+                    return jsonify({
+                        "error": f"File too large",
+                        "detail": f"File size ({log_size_bytes / 1024 / 1024:.1f}MB) exceeds maximum ({cfg.ingestion.max_file_size_bytes / 1024 / 1024:.1f}MB)"
+                    }), 413
+                
+                # Stream read the file in chunks
+                chunks = []
+                chunk_size = cfg.ingestion.read_buffer_size
+                while True:
+                    chunk = file.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk.decode('utf-8', errors='replace'))
+                log_text = ''.join(chunks)
             else:
                 log_text = request.form.get("log_text", "")
+                log_size_bytes = len(log_text.encode('utf-8')) if log_text else 0
         
         if not log_text:
             return jsonify({"error": "log_text or file required"}), 400
         
         analysis_id = str(uuid.uuid4())
+        
+        # Store logs temporarily for context reuse
+        temp_store = get_temp_log_store()
+        try:
+            temp_entry = temp_store.store(analysis_id, log_text, filename="logs.txt")
+            logger.info(f"Stored temporary logs for session {analysis_id}: size={log_size_bytes}")
+        except Exception as e:
+            logger.warning(f"Failed to store temporary logs: {e}")
+            # Continue without temporary storage (non-critical)
         
         # Build structured context pipeline
         import tempfile
@@ -310,6 +343,11 @@ def create_app(config=None) -> Flask:
                 "insight_count": len(insights),
                 "has_security_issues": bool(security.get("indicators")),
                 "user_intent": payload_context.get("user_intent", "general"),
+                # Log storage metadata for context reuse
+                "log_storage": {
+                    "size_bytes": log_size_bytes,
+                    "has_temp_storage": temp_entry is not None if 'temp_entry' in locals() else False
+                },
                 # Add chart-ready data
                 "charts": {
                     "severity_distribution": structured_data.get("metrics", {}).get("severity_distribution", []),

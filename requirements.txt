@@ -26,4 +26,5 @@ python-dotenv>=1.0.0
 # LLM Dependencies
 google-genai>=1.0.0
 groq>=0.9.0
+httpx>=0.25.0
 

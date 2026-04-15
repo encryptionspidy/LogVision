@@ -4,6 +4,7 @@ import os
 import logging
 import time
 from datetime import datetime
+from typing import List, Dict, Any
 
 # Configure logging based on environment
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
@@ -341,6 +342,60 @@ class LLMRouter:
         if self.groq_key:
             self.groq_client = Groq(api_key=self.groq_key)
 
+    def _is_rate_limit_error(self, error: Exception) -> bool:
+        """Detect if an error is a rate limit error."""
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+        
+        # Check for HTTP 429
+        if '429' in error_str or 'rate limit' in error_str:
+            return True
+        
+        # Check for quota exceeded
+        if 'quota' in error_str and 'exceed' in error_str:
+            return True
+        
+        # Check for too many requests
+        if 'too many requests' in error_str:
+            return True
+        
+        return False
+    
+    def _call_gemini_with_retry(self, prompt, max_retries: int = 1):
+        """
+        Call Gemini API with retry logic for rate limits.
+        
+        Args:
+            prompt: The prompt to send
+            max_retries: Maximum number of retries (default 1)
+            
+        Returns:
+            Response text or raises exception
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                if USE_NEW_GEMINI and self.gemini_client:
+                    response = self.gemini_client.models.generate_content(
+                        model='gemini-1.5-flash',
+                        contents=prompt
+                    )
+                    return response.text
+                elif hasattr(self, 'gemini_model') and self.gemini_model:
+                    response = self.gemini_model.generate_content(prompt)
+                    return response.text
+                else:
+                    raise Exception("Gemini not properly initialized")
+            except Exception as e:
+                if self._is_rate_limit_error(e) and attempt < max_retries:
+                    # Exponential backoff: 1s, 2s, 4s
+                    backoff_time = 2 ** attempt
+                    logger.warning(f"Rate limit detected on Gemini (attempt {attempt + 1}), "
+                                 f"retrying in {backoff_time}s...")
+                    time.sleep(backoff_time)
+                else:
+                    # Not a rate limit or max retries exceeded
+                    raise
+    
     def _call_gemini(self, prompt):
         """Call Gemini API using new google.genai package or fallback."""
         if USE_NEW_GEMINI and self.gemini_client:
@@ -364,6 +419,48 @@ class LLMRouter:
             model="llama-3.1-8b-instant"
         )
         return chat_completion.choices[0].message.content
+
+    def _route_hybrid(self, prompt):
+        """
+        Hybrid routing strategy with rate limit handling.
+        
+        Strategy:
+        1. Try Gemini primary
+        2. On rate limit: retry once with exponential backoff
+        3. On second failure: fallback to Groq
+        4. Preserve conversation context across retries
+        """
+        import concurrent.futures
+        
+        # Try Gemini first with retry
+        gemini_result = None
+        gemini_error = None
+        
+        try:
+            logger.info("Attempting Gemini (primary)")
+            gemini_result = self._call_gemini_with_retry(prompt, max_retries=1)
+            logger.info("Gemini request successful")
+            return {"status": "success", "text": gemini_result, "source": "gemini"}
+        except Exception as e:
+            gemini_error = e
+            if self._is_rate_limit_error(e):
+                logger.warning(f"Gemini rate limited after retry: {e}")
+            else:
+                logger.warning(f"Gemini failed: {e}")
+        
+        # Fallback to Groq
+        if self.groq_key:
+            try:
+                logger.info("Falling back to Groq")
+                groq_result = self._call_groq(prompt)
+                logger.info("Groq request successful")
+                return {"status": "success", "text": groq_result, "source": "groq"}
+            except Exception as e:
+                logger.error(f"Groq fallback failed: {e}")
+                raise Exception(f"Both LLMs failed - Gemini: {gemini_error}, Groq: {e}")
+        else:
+            # No Groq available, raise Gemini error
+            raise Exception(f"Gemini failed and no Groq fallback available: {gemini_error}")
 
     def _route_dual(self, prompt):
         """Call both Gemini and Groq simultaneously and merge results for better accuracy."""
@@ -430,8 +527,97 @@ class LLMRouter:
             raise Exception(f"Both LLMs failed - Gemini: {gemini_result}, Groq: {groq_result}")
 
     def _route(self, prompt):
-        # Use dual-LLM strategy for better results
-        return self._route_dual(prompt)
+        # Use hybrid routing with rate limit handling
+        return self._route_hybrid(prompt)
+    
+    def _prepare_logs_for_llm(self, logs: str, max_chars: int = 12000) -> str:
+        """
+        Prepare logs for LLM analysis using progressive summarization.
+        
+        Instead of naive truncation, this method:
+        1. Extracts structured signals
+        2. Prioritizes error/warning lines
+        3. Maintains distribution awareness
+        4. Preserves key log snippets as evidence
+        
+        Args:
+            logs: Raw log string
+            max_chars: Maximum characters to include in prompt
+            
+        Returns:
+            Prepared log string for LLM
+        """
+        try:
+            from app.processing.chunk_processor import ChunkProcessor
+            from app.processing.signal_extractor import SignalExtractor
+        except ImportError:
+            # Fallback to simple truncation if modules not available
+            logger.warning("Chunk processor or signal extractor not available, using simple truncation")
+            return logs[:max_chars]
+        
+        log_lines = logs.split('\n')
+        
+        # If logs are small enough, return as-is
+        if len(logs) < 100 and len(logs) < max_chars:
+            return logs
+        
+        # Extract structured signals
+        signal_extractor = SignalExtractor()
+        signals = signal_extractor.extract_signals(log_lines)
+        
+        # Extract key log snippets for evidence
+        key_snippets = signal_extractor.extract_key_log_snippets(log_lines, count=15)
+        
+        # Build prepared logs with signals
+        prepared_parts = []
+        
+        # Add signal summary
+        signal_summary = f"""=== LOG ANALYSIS CONTEXT ===
+Total Lines: {signals['total_lines']}
+Severity Distribution: {signals['severity_distribution']}
+Top Components: {[c['name'] for c in signals['components'][:5]]}
+Error Pattern Count: {len(signals['error_patterns'])}
+Repeating Signatures: {len(signals['repeating_signatures'])}
+"""
+        prepared_parts.append(signal_summary)
+        
+        # Add key error/warning lines first (highest priority)
+        prepared_parts.append("\n=== KEY ERROR AND WARNING LINES ===")
+        for snippet in key_snippets[:10]:
+            prepared_parts.append(snippet)
+        
+        # Add component-specific error clusters
+        prepared_parts.append("\n=== COMPONENT ERROR CLUSTERS ===")
+        for component in signals['components'][:5]:
+            if component['error_count'] > 0:
+                prepared_parts.append(f"\n{component['name']} ({component['error_count']} errors)")
+        
+        # Add repeating patterns
+        if signals['repeating_signatures']:
+            prepared_parts.append("\n=== REPEATING PATTERNS ===")
+            for pattern in signals['repeating_signatures'][:5]:
+                prepared_parts.append(f"Pattern (appears {pattern['count']} times, {pattern['percentage']}%):")
+                prepared_parts.append(pattern['signature'])
+        
+        # Add additional context lines if space remains
+        prepared_parts.append("\n=== ADDITIONAL CONTEXT ===")
+        # Add some normal lines to maintain distribution
+        normal_lines = [line for line in log_lines if not any(
+            kw in line.upper() for kw in ['ERROR', 'WARN', 'FATAL', 'CRITICAL']
+        )]
+        for line in normal_lines[:20]:
+            prepared_parts.append(line)
+        
+        # Combine and truncate to max_chars
+        prepared = '\n'.join(prepared_parts)
+        
+        if len(prepared) > max_chars:
+            # Truncate from the end, preserving the beginning
+            prepared = prepared[:max_chars] + "\n... (truncated)"
+        
+        logger.info(f"Prepared logs for LLM: {len(logs)} lines -> {len(prepared)} chars")
+        
+        return prepared
         
     def _extract_metrics_from_markdown(self, markdown, logs):
         """Parse metrics from markdown narrative when JSON parsing fails."""
@@ -867,7 +1053,7 @@ REQUIRED OUTPUT — Valid JSON only:
 }}}}
 
 LOGS TO ANALYZE:
-{logs[:8000]}
+{self._prepare_logs_for_llm(logs, max_chars=12000)}
 
 {f'User Focus: {instruction}' if instruction else 'Provide comprehensive analysis.'}
 
@@ -1188,6 +1374,42 @@ If you're experiencing specific problems, please:
         history_str = ""
         if history:
             history_str = "Chat History:\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in history]) + "\n"
+        
+        # Reuse structured signals from context to avoid reprocessing
+        context_str = ""
+        if context and context.get("structured_state"):
+            state = context["structured_state"]
+            context_parts = []
+            
+            # Add key insight
+            if state.get("key_insight"):
+                context_parts.append(f"Previous Analysis Summary: {state['key_insight']}")
+            
+            # Add core problem
+            if state.get("core_problem"):
+                cp = state["core_problem"]
+                context_parts.append(f"Core Problem: {cp.get('title', 'N/A')} - {cp.get('description', 'N/A')}")
+            
+            # Add causal chain
+            if state.get("causal_chain"):
+                context_parts.append(f"Failure Chain: {len(state['causal_chain'])} steps identified")
+            
+            # Add metrics
+            if state.get("metrics"):
+                metrics = state["metrics"]
+                total_logs = metrics.get("total_logs", 0)
+                error_rate = metrics.get("error_rate", 0)
+                context_parts.append(f"Log Statistics: {total_logs} total lines, {error_rate}% error rate")
+            
+            # Add components
+            if state.get("metrics", {}).get("affected_components"):
+                components = state["metrics"]["affected_components"][:5]
+                comp_names = [c.get("component", "Unknown") for c in components]
+                context_parts.append(f"Affected Components: {', '.join(comp_names)}")
+            
+            if context_parts:
+                context_str = "\n".join(context_parts) + "\n"
+        
         prompt = f"""{MASTER_SYSTEM_PROMPT}
 
 You MUST format every response using markdown with this structure:
@@ -1204,6 +1426,7 @@ Brief overview of your answer.
 Never output plain paragraph blocks or unstructured essay text.
 Always be calm, analytical, concise, and reference log evidence when available.
 
+{context_str}
 {history_str}
 User Question: {question}"""
         res = self._route(prompt)

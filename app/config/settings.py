@@ -12,8 +12,8 @@ from typing import Optional, Tuple, Dict
 @dataclass(frozen=True)
 class IngestionConfig:
     """Configuration for the ingestion module."""
-    # Maximum file size in bytes (50 MB)
-    max_file_size_bytes: int = 50 * 1024 * 1024
+    # Maximum file size in bytes (100 MB)
+    max_file_size_bytes: int = 100 * 1024 * 1024
     # Number of bytes to sample for encoding detection
     encoding_sample_bytes: int = 10_240
     # Allowed file extensions
@@ -114,4 +114,5 @@ class AppConfig:
 
 # Singleton config instance — import this throughout the project
 # ASSUMPTION: Config is immutable at runtime (frozen dataclasses)
+DEFAULT_CONFIG = AppConfig()
 DEFAULT_CONFIG = AppConfig()
